@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+        <meta name="viewport" content="width=device-width, user-scalable=no">
+        <title>VivaGraphs test page</title>
+
+        <script src="../../../dist/vivagraph.js"></script>
+        <script src="images_list.js"></script>
+        <script type='text/javascript'>
+            /*global Viva, $*/
+            function onLoad() {
+                var dataVivaGraph = getDataGraph(1000);
+                var linkColor = '#7E7E7E';
+                var linkRelatedColor = '#549B03';
+                var linkUnrelatedColor = '#DFDFDF';
+
+                //Layout force
+                var layout = Viva.Graph.Layout.forceDirected(dataVivaGraph, {
+                    springLength : 2,
+                    springCoeff : 0.00055,
+                    dragCoeff : 0.09,
+                    gravity : -10
+                });
+
+                //Image nodes
+                var graphics = Viva.Graph.View.webglGraphics();
+                let nodeSize = 12;
+                graphics.setNodeProgram(Viva.Graph.View.webglImageNodeProgram(4096));
+                graphics.node(function(node) {
+                    if(!node.data.over){
+                        ui = Viva.Graph.View.webglImage(nodeSize, `imgs/${node.data.img}`, 0);
+                    }
+                    else{
+                        ui = Viva.Graph.View.webglImage(nodeSize, `imgs/transparent-box.png`);
+                    }
+                   
+                    return ui;
+                 });
+                graphics.link(function(link) {
+                    return Viva.Graph.View.webglLine(linkColor);
+                }); 
+
+                //Rendering all graph
+                var renderer = Viva.Graph.View.renderer(dataVivaGraph, {
+                    container : document.getElementById('div_graph'),
+                    layout : layout,
+                    graphics : graphics,
+                    prerender: 100,
+                    renderLinks : true ,
+                 });
+
+                var nodeSelected = null;
+                var events = Viva.Graph.webglInputEvents(graphics, dataVivaGraph);
+                events.click(function (node) {
+                    if(nodeSelected){
+                        selectedNode(nodeSelected.id, false);
+                    }
+                    nodeSelected = node;
+                    selectedNode(nodeSelected.id, true);
+                });
+
+                document.addEventListener('keyup', function a(key) {
+                    if(key.code === 'Escape'){
+                        selectedNode(nodeSelected.id, false);
+                        nodeSelected = null;
+                    }
+                    else if(nodeSelected && ['1','2','3','4','5','6'].indexOf(key.key) > -1){
+                        selectedNode(nodeSelected.id, false);
+                        selectedNode(nodeSelected.id, true, parseInt(key.key));
+                    } 
+                });
+
+                renderer.run(20); 
+ 
+                //PRIVATE FUNCTIONS
+                function getDataGraph(N){
+                    
+                    const imgs = imagesList;
+
+                    function genRandomGraph(N = 300, reverse = false) {
+                        return {
+                            nodes: [...Array(N).keys()].map(i => ({ id: i, img: imgs[i%imgs.length] })),
+                            links: [...Array(N).keys()]
+                                .filter(id => id)
+                                .map(id => ({
+                                    target: Math.round(Math.random() * (id - 1)),
+                                    source: Math.round(Math.random() * (id - 1)),
+                                })),
+                        };
+                    }
+
+                    var data = genRandomGraph(N);
+                    var g = Viva.Graph.graph();
+                    for (var i = 0; i < data.nodes.length; ++i){
+                        g.addNode(i, data.nodes[i]);
+                    }
+                    for (i = 0; i < data.links.length; ++i){
+                        var link = data.links[i];
+                        g.addLink(link.source, link.target, link.value);
+                    }
+
+                    return g;
+                };
+                
+                function fillLinksAndNodesConnected(nodeId, nodesConnected , linksConnected, level){
+
+                    if(level > 0){
+                        level = level -1;
+                        dataVivaGraph.forEachLinkedNode(nodeId, function(node, link){
+                                linksConnected.push(link);  
+                                nodesConnected.push(node);
+                                fillLinksAndNodesConnected(node.id, nodesConnected, linksConnected, level);
+                        });
+                    }
+                    else{
+                        return;
+                    }
+                }
+                function selectedNode (nodeId, isOn, level = 1) {
+
+                    var nodesConnected = [];
+                    var linksConnected = [];
+
+                    fillLinksAndNodesConnected(nodeId, nodesConnected, linksConnected, level);
+
+                    //All links
+                    dataVivaGraph.forEachLink(function(link){
+                        var linkUI = graphics.getLinkUI(link.id);
+                        var color;
+
+                        if(linksConnected.find((e)=> e.id === link.id)){
+                            if(isOn){ color = linkRelatedColor;}
+                            else{color = linkColor;}
+                        }
+                        else{
+                            if(isOn){color =linkUnrelatedColor;}
+                            else{color = linkColor;}
+                        }
+
+                        linkUI.color = Viva.Graph.View._webglUtil.parseColor(color) ;
+                    });
+                    
+                    //All nodes
+                    dataVivaGraph.forEachNode(function(node){
+                        var nodeUI = graphics.getNodeUI(node.id);
+
+                        if(isOn){
+                            nodeUI.node.previusImage = nodeUI.node.data.img;
+                            if(nodesConnected.find((e)=> e.id === node.id) || node.id === nodeId){
+                                dataVivaGraph.addNode(nodeUI.node.id, nodeUI.node.data);
+                            }
+                            else{
+                                nodeUI.node.data.over = true;
+                                dataVivaGraph.addNode(nodeUI.node.id, nodeUI.node.data);
+                            }
+                        }
+                        else{
+                            nodeUI.node.data.img = nodeUI.node.previusImage;
+                            nodeUI.node.data.over = false;
+                            dataVivaGraph.addNode(nodeUI.node.id, nodeUI.node.data);
+                        }
+                    })
+                    
+                    //Rendering 
+                    setTimeout(()=>{renderer.rerender();},100);
+                };
+
+            }
+        </script>
+        <style type='text/css'>
+            #div_graph{
+                position: absolute;
+                vertical-align:middle;
+                width: 100%;
+                height: 100%;
+            }
+            .label {
+                position: absolute;
+                top: 10px;
+                color: black;
+                font-size: 14px;
+                left: 10px;
+                font-family: monospace;
+            }
+        </style>
+    </head>
+    <body onload='onLoad()' style='width:100%; height: 100%; position : absolute'>
+            <div id='div_graph' ></div>
+            <span class='label'>When you do click over a node, press 1,2,3... key to see relations</span>
+
+    </body>
+</html>
